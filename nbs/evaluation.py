@@ -336,22 +336,22 @@ def evaluate_model(model, X_val, y_val, X_test=None, y_test=None, threshold=0.5,
     plt.show()
     
     # 5. Probability Distribution by Class
-    for i, (dataset_name, X, y) in enumerate(datasets):
-        y_proba = all_probas[i]
+    # for i, (dataset_name, X, y) in enumerate(datasets):
+    #     y_proba = all_probas[i]
         
-        plt.figure(figsize=(10, 6))
-        for j, cls in enumerate([0, 1]):
-            plt.hist(y_proba[y == cls], bins=25, alpha=0.5, 
-                    label=f'Class {cls} ({class_names[j]})')
+    #     plt.figure(figsize=(10, 6))
+    #     for j, cls in enumerate([0, 1]):
+    #         plt.hist(y_proba[y == cls], bins=25, alpha=0.5, 
+    #                 label=f'Class {cls} ({class_names[j]})')
         
-        plt.axvline(x=threshold, color='r', linestyle='--', 
-                   label=f'Threshold: {threshold}')
-        plt.xlabel('Predicted Probability')
-        plt.ylabel('Count')
-        plt.title(f'Probability Distribution by Class - {model_name} ({dataset_name})')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.show()
+    #     plt.axvline(x=threshold, color='r', linestyle='--', 
+    #                label=f'Threshold: {threshold}')
+    #     plt.xlabel('Predicted Probability')
+    #     plt.ylabel('Count')
+    #     plt.title(f'Probability Distribution by Class - {model_name} ({dataset_name})')
+    #     plt.legend()
+    #     plt.grid(True, alpha=0.3)
+    #     plt.show()
     
     # 6. Threshold Analysis
     thresholds = np.linspace(0.01, 0.99, 99)
