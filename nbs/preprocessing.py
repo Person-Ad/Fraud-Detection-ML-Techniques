@@ -3,6 +3,7 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.metrics import f1_score
 from typing import Tuple, List, Dict
+from imblearn.over_sampling import KMeansSMOTE
 
 # Feature engineering functions
 
@@ -199,8 +200,6 @@ def search_best_config(X_train: pd.DataFrame, X_val: pd.DataFrame, model, y_trai
         },
     ]
 
-
-    
     for config in configs:
         print(f"🔍 Evaluating config: {config}")
         X_train_processed = run_feature_engineering_single_df(X_train.copy(), config)
@@ -227,3 +226,87 @@ def search_best_config(X_train: pd.DataFrame, X_val: pd.DataFrame, model, y_trai
 # - Time-based features (`Transaction_hour`, `is_weekend`, etc.) do not provide clear benefit here — consider skipping them.
 # - Creating transaction amount ratios shows neutral effect — optional based on model complexity.
 # - Best performance comes from a **simple yet focused** config: clean data, encode categoricals, fill missing values, and log-transform `TransactionAmt`.
+
+def preprocess_datasets(X_train: pd.DataFrame, X_val: pd.DataFrame, X_test: pd.DataFrame = None):
+    def high_missing_cols(df):
+        return [col for col in df.columns if df[col].isnull().mean() > 0.96]
+
+    def big_top_value_cols(df):
+        return [col for col in df.columns if df[col].value_counts(dropna=False, normalize=True).values[0] > 0.96]
+
+    # Gather column names for dropping
+    cols_to_drop = set(
+        high_missing_cols(X_train) +
+        high_missing_cols(X_val) +
+        big_top_value_cols(X_train) +
+        big_top_value_cols(X_val)
+    )
+    if X_test is not None:
+        cols_to_drop.update(high_missing_cols(X_test))
+        cols_to_drop.update(big_top_value_cols(X_test))
+
+    cols_to_drop.add("TransactionDT")
+
+    print("Dropping columns:", list(cols_to_drop))
+
+    # Drop columns
+    X_train = X_train.drop(columns=cols_to_drop, errors="ignore")
+    X_val   = X_val.drop(columns=cols_to_drop, errors="ignore")
+    if X_test is not None:
+        X_test = X_test.drop(columns=cols_to_drop, errors="ignore")
+
+    # Fit label encoders on combined data
+    combined = [X_train, X_val] + ([X_test] if X_test is not None else [])
+    all_data = pd.concat(combined, axis=0)
+
+    for col in all_data.columns:
+        if all_data[col].dtype == 'object':
+            lbl = LabelEncoder()
+            lbl.fit(all_data[col].astype(str).fillna("nan"))
+            X_train[col] = lbl.transform(X_train[col].astype(str).fillna("nan"))
+            X_val[col] = lbl.transform(X_val[col].astype(str).fillna("nan"))
+            if X_test is not None:
+                X_test[col] = lbl.transform(X_test[col].astype(str).fillna("nan"))
+
+    # Fill missing values
+    X_train = X_train.fillna(-999)
+    X_val   = X_val.fillna(-999)
+    if X_test is not None:
+        X_test = X_test.fillna(-999)
+
+    # Show shapes
+    print("Train shape:", X_train.shape)
+    print("Val shape:", X_val.shape)
+    if X_test is not None:
+        print("Test shape:", X_test.shape)
+
+    return (X_train, X_val, X_test) if X_test is not None else (X_train, X_val)
+
+
+
+
+def apply_kmeans_smote(X_train, y_train, sampling_strategy=0.15, k_neighbors=10, cluster_balance_threshold=0.02, n_jobs=4, random_state=99):
+    """
+    Apply KMeansSMOTE to balance the dataset.
+    """
+    print("Before OverSampling:")
+    print(f"Label '1': {sum(y_train == 1)}")
+    print(f"Label '0': {sum(y_train == 0)}\n")
+
+    sm = KMeansSMOTE(
+        random_state=random_state,
+        sampling_strategy=sampling_strategy,
+        k_neighbors=k_neighbors,
+        cluster_balance_threshold=cluster_balance_threshold,
+        n_jobs=n_jobs
+    )
+    
+    X_resampled, y_resampled = sm.fit_resample(X_train, y_train.ravel())
+    X_resampled = pd.DataFrame(X_resampled, columns=X_train.columns)
+    y_resampled = pd.Series(y_resampled)
+
+    print("After OverSampling:")
+    print(f"Label '1': {sum(y_resampled == 1)}")
+    print(f"Label '0': {sum(y_resampled == 0)}\n")
+    
+    return X_resampled, y_resampled
