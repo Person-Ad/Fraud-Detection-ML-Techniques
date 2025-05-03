@@ -10,6 +10,7 @@ import pickle
 # Configuration
 DATA_PATH = "data/"
 RESULTS_PATH = "results/"
+RESULTS_PATH = "results/"
 CONFIG = {
     'create_transaction_amount_ratios': False,
     'clean_data': True,
@@ -19,7 +20,9 @@ CONFIG = {
     'create_time_features': False,
     'drop_unused_columns': False,
     'log_transform_transaction_amt': True,
-    'standardize_numeric': True 
+    'standardize_numeric': True,
+    'apply_pca': False,
+    'n_pca_components': 25
 }
 
 # Create results directories
@@ -59,14 +62,37 @@ def main():
     print("Preprocessing data...")
     X_train_processed = preprocess_data(X_train.copy(), CONFIG)
     X_val_processed = preprocess_data(X_val.copy(), CONFIG)
+
+    
+    print("Evaluating Logistic Regression...")
+    lr_results = evaluate_logistic_regression(
+        X_train_processed, y_train, X_val_processed, y_val,
+        C_range=[0.001, 0.1, 5, 100],
+        penalty_types=['l1', 'l2'],
+        cv=None,
+        subsample_fraction=0.2
+    )
+    
+    # Evaluate the best Logistic Regression model in detail
+    best_lr = lr_results['best_model']
+    lr_detailed_results = evaluate_model(
+        model=best_lr,
+        X_val=X_val_processed,
+        y_val=y_val,
+        model_name="Logistic Regression",
+        class_names=['Non-Fraud', 'Fraud']
+    )
+    save_results(lr_detailed_results, "lr_metrics.txt")
+    save_results(best_lr, "logistic_regression_model.pkl", result_type="model")
+
     
     print("Evaluating SVM...")
     svm_results = evaluate_svm(
         X_train_processed, y_train, X_val_processed, y_val,
         C_range=[0.01, 0.1, 1, 10],
         kernel_types=['linear', 'rbf'],
-        cv=3,
-        subsample_fraction=0.2  # Use small fraction for speed
+        cv=None,
+        subsample_fraction=0.1
     )
 
     # Evaluate the best SVM model in detail
@@ -81,27 +107,7 @@ def main():
     save_results(svm_detailed_results, "svm_metrics.txt")
     save_results(best_svm, "svm_model.pkl", result_type="model")
 
-    # Step 3: Evaluate Logistic Regression
-    print("Evaluating Logistic Regression...")
-    lr_results = evaluate_logistic_regression(
-        X_train_processed, y_train, X_val_processed, y_val,
-        C_range=[0.001, 0.1, 5, 100],
-        penalty_types=['l1', 'l2'],
-        cv=None,
-        subsample_fraction=0.1
-    )
-    
-    # Evaluate the best Logistic Regression model in detail
-    best_lr = lr_results['best_model']
-    lr_detailed_results = evaluate_model(
-        model=best_lr,
-        X_val=X_val_processed,
-        y_val=y_val,
-        model_name="Logistic Regression",
-        class_names=['Non-Fraud', 'Fraud']
-    )
-    save_results(lr_detailed_results, "lr_metrics.txt")
-    save_results(best_lr, "logistic_regression_model.pkl", result_type="model")
+
     
     # Step 4: Evaluate Random Forest
     print("Evaluating Random Forest...")

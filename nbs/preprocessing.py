@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.metrics import f1_score
 from typing import Tuple, List, Dict
-
+from sklearn.decomposition import PCA
 # Feature engineering functions
 
 def clean_data(X: pd.DataFrame, reference: pd.DataFrame) -> pd.DataFrame:
@@ -119,6 +119,20 @@ def run_feature_engineering_single_df(X: pd.DataFrame, config: Dict) -> pd.DataF
             scaler = StandardScaler()
             X[numeric_cols] = scaler.fit_transform(X[numeric_cols])
             print("✅ Numeric features standardized")
+
+    if config.get('apply_pca', False):
+        n_components = config.get('n_pca_components', 100)
+        pca = PCA(n_components=n_components, random_state=42)
+        X_pca = pca.fit_transform(X)
+        # Convert back to DataFrame with component names
+        X = pd.DataFrame(X_pca, columns=[f'PC{i+1}' for i in range(X_pca.shape[1])], index=X.index)
+        explained_variance_ratio = pca.explained_variance_ratio_
+        print(f"✅ Applied PCA, reduced to {X.shape[1]} components, "
+              f"explained variance ratio: {sum(explained_variance_ratio):.4f}")
+        
+        # Save PCA object for reuse on validation/test data
+        config['pca_object'] = pca
+
 
     print(f"🎯 Final shape: {X.shape}")
     return X
