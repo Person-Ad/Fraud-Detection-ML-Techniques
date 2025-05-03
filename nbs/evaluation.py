@@ -5,11 +5,15 @@ from sklearn.metrics import (
 )
 from sklearn.calibration import calibration_curve
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score, GridSearchCV
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from typing import List, Dict, Any, Tuple, Union, Optional
+from sklearn.utils import resample
+import os
 
 
 def evaluate_random_forest_estimators(X_train, y_train, X_val, y_val, estimator_range, 
@@ -561,3 +565,317 @@ def evaluate_multiple_models(models, X_val, y_val, X_test=None, y_test=None, thr
         plt.show()
     
     return comparison
+
+def evaluate_logistic_regression(X_train, y_train, X_val, y_val, 
+                                C_range=None, penalty_types=None, cv=None,
+                                results_path="results/plots", subsample_fraction=1.0):
+    """
+    Evaluate Logistic Regression with optimized performance.
+    
+    Parameters:
+    -----------
+    X_train : array-like
+        Training feature data
+    y_train : array-like
+        Training target data
+    X_val : array-like
+        Validation feature data
+    y_val : array-like
+        Validation target data
+    C_range : list, optional
+        List of inverse regularization strength values (default: [0.01, 0.1, 1, 10])
+    penalty_types : list, optional
+        List of penalty types (default: ['l1', 'l2'])
+    cv : int, optional
+        Number of cross-validation folds (if None, no CV is performed)
+    results_path : str, optional
+        Directory to save plots (default: "results/plots")
+    subsample_fraction : float, optional
+        Fraction of training data to use for grid search (default: 1.0)
+        
+    Returns:
+    --------
+    Dict containing scores and best parameters
+    """
+    if C_range is None:
+        C_range = [0.01, 0.1, 1, 10]
+    if penalty_types is None:
+        penalty_types = ['l1', 'l2']
+    
+    results = {}
+    best_auc = 0
+    best_params = {}
+    
+    os.makedirs(results_path, exist_ok=True)
+    
+    # Subsample training data
+    if subsample_fraction < 1.0:
+        print(f"Subsampling {subsample_fraction*100:.1f}% of training data for grid search...")
+        X_train_sub, y_train_sub = resample(X_train, y_train, 
+                                          n_samples=int(len(X_train) * subsample_fraction),
+                                          stratify=y_train, random_state=42)
+    else:
+        X_train_sub, y_train_sub = X_train, y_train
+    
+    # Grid search with GridSearchCV
+    param_grid = {'C': C_range, 'penalty': penalty_types}
+    lr = LogisticRegression(solver='saga', random_state=42, max_iter=5000, tol=1e-3)
+    grid_search = GridSearchCV(
+        lr, param_grid, scoring='roc_auc', cv=3, n_jobs=-1, verbose=1
+    )
+    print("Starting grid search with GridSearchCV...")
+    grid_search.fit(X_train_sub, y_train_sub)
+    
+    # Extract grid scores
+    grid_scores = np.zeros((len(param_grid['penalty']), len(param_grid['C'])))
+    for i, penalty in enumerate(param_grid['penalty']):
+        for j, C in enumerate(param_grid['C']):
+            idx = np.where((grid_search.cv_results_['param_C'] == C) & 
+                          (grid_search.cv_results_['param_penalty'] == penalty))[0]
+            if len(idx) > 0:
+                grid_scores[i, j] = grid_search.cv_results_['mean_test_score'][idx[0]]
+    
+    # Evaluate best model on validation set
+    best_params = grid_search.best_params_
+    best_auc = roc_auc_score(y_val, grid_search.best_estimator_.predict_proba(X_val)[:, 1])
+    print(f"Best parameters: {best_params}, Validation AUC: {best_auc:.4f}")
+    
+    # Plot heatmap
+    plt.figure(figsize=(12, 8))
+    sns.heatmap(grid_scores, annot=True, fmt='.4f', 
+                xticklabels=param_grid['C'], 
+                yticklabels=param_grid['penalty'])
+    plt.title('Logistic Regression AUC (GridSearchCV)')
+    plt.xlabel('C (Inverse Regularization Strength)')
+    plt.ylabel('Penalty Type')
+    plt.tight_layout()
+    plt.savefig(os.path.join(results_path, "logistic_regression_auc_heatmap.png"))
+    plt.show()
+    plt.close()
+    
+    results['grid_scores'] = grid_scores
+    
+    # Cross-validation on full data
+    if cv is not None:
+        print(f"\nPerforming {cv}-fold cross-validation with best parameters: {best_params}")
+        lr = LogisticRegression(
+            C=best_params['C'],
+            penalty=best_params['penalty'],
+            solver='saga',
+            random_state=42,
+            max_iter=5000,
+            tol=1e-3
+        )
+        cv_scores = cross_val_score(lr, X_train, y_train, cv=cv, scoring='roc_auc')
+        print(f"Cross-validation AUC with {cv} folds:")
+        print(f"Mean: {cv_scores.mean():.4f}, Std: {cv_scores.std():.4f}")
+        print(f"CV Scores: {cv_scores}")
+        
+        results['cv_results'] = {
+            'scores': cv_scores,
+            'mean': cv_scores.mean(),
+            'std': cv_scores.std()
+        }
+    
+    # Train best model on full data
+    print("\nTraining best Logistic Regression model on full data...")
+    best_lr = LogisticRegression(
+        C=best_params['C'],
+        penalty=best_params['penalty'],
+        solver='saga',
+        random_state=42,
+        max_iter=5000,
+        tol=1e-3
+    )
+    best_lr.fit(X_train, y_train)
+    
+    # Feature importance (coefficients)
+    if hasattr(X_train, 'columns'):
+        features = X_train.columns
+    else:
+        features = [f'Feature {i}' for i in range(X_train.shape[1])]
+    
+    coefficients = best_lr.coef_[0]
+    sorted_idx = np.argsort(np.abs(coefficients))
+    
+    plt.figure(figsize=(10, 8))
+    plt.barh(range(len(sorted_idx)), coefficients[sorted_idx])
+    plt.yticks(range(len(sorted_idx)), [features[i] for i in sorted_idx])
+    plt.title('Logistic Regression Feature Coefficients')
+    plt.xlabel('Coefficient Value')
+    plt.tight_layout()
+    plt.savefig(os.path.join(results_path, "logistic_regression_coefficients.png"))
+    plt.show()
+    plt.close()
+    
+    results['feature_importances'] = dict(zip(features, coefficients))
+    results['best_auc'] = best_auc
+    results['best_params'] = best_params
+    results['best_model'] = best_lr
+    
+    print("Logistic Regression evaluation completed!")
+    return results
+
+from sklearn.svm import SVC
+from sklearn.model_selection import GridSearchCV, cross_val_score
+from sklearn.metrics import roc_auc_score
+from sklearn.utils import resample
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+
+def evaluate_svm(X_train, y_train, X_val, y_val, 
+                C_range=None, kernel_types=None, cv=None,
+                results_path="results/plots", subsample_fraction=1.0):
+    """
+    Evaluate Support Vector Machine (SVM) performance across different C values and kernel types.
+    
+    Parameters:
+    -----------
+    X_train : array-like
+        Training feature data
+    y_train : array-like
+        Training target data
+    X_val : array-like
+        Validation feature data
+    y_val : array-like
+        Validation target data
+    C_range : list, optional
+        List of regularization parameter values (default: [0.01, 0.1, 1, 10])
+    kernel_types : list, optional
+        List of kernel types (default: ['linear', 'rbf'])
+    cv : int, optional
+        Number of cross-validation folds (if None, no CV is performed)
+    results_path : str, optional
+        Directory to save plots (default: "results/plots")
+    subsample_fraction : float, optional
+        Fraction of training data to use for grid search (default: 1.0)
+        
+    Returns:
+    --------
+    Dict containing scores and best parameters
+    """
+    if C_range is None:
+        C_range = [0.01, 0.1, 1, 10]
+    if kernel_types is None:
+        kernel_types = ['linear', 'rbf']
+    
+    results = {}
+    best_auc = 0
+    best_params = {}
+    
+    os.makedirs(results_path, exist_ok=True)
+    
+    # Subsample training data
+    if subsample_fraction < 1.0:
+        print(f"Subsampling {subsample_fraction*100:.1f}% of training data for grid search...")
+        X_train_sub, y_train_sub = resample(X_train, y_train, 
+                                            n_samples=int(len(X_train) * subsample_fraction),
+                                            stratify=y_train, random_state=42)
+    else:
+        X_train_sub, y_train_sub = X_train, y_train
+    
+    # Grid search with GridSearchCV
+    param_grid = {'C': C_range, 'kernel': kernel_types}
+    svm = SVC(probability=True, random_state=42, max_iter=-1)  # probability=True for predict_proba
+    grid_search = GridSearchCV(
+        svm, param_grid, scoring='roc_auc', cv=3, n_jobs=-1, verbose=1
+    )
+    print("Starting grid search with GridSearchCV...")
+    grid_search.fit(X_train_sub, y_train_sub)
+    
+    # Extract grid scores
+    grid_scores = np.zeros((len(param_grid['kernel']), len(param_grid['C'])))
+    for i, kernel in enumerate(param_grid['kernel']):
+        for j, C in enumerate(param_grid['C']):
+            idx = np.where((grid_search.cv_results_['param_C'] == C) & 
+                           (grid_search.cv_results_['param_kernel'] == kernel))[0]
+            if len(idx) > 0:
+                grid_scores[i, j] = grid_search.cv_results_['mean_test_score'][idx[0]]
+    
+    # Evaluate best model on validation set
+    best_params = grid_search.best_params_
+    best_auc = roc_auc_score(y_val, grid_search.best_estimator_.predict_proba(X_val)[:, 1])
+    print(f"Best parameters: {best_params}, Validation AUC: {best_auc:.4f}")
+    
+    # Plot heatmap
+    plt.figure(figsize=(12, 8))
+    sns.heatmap(grid_scores, annot=True, fmt='.4f', 
+                xticklabels=param_grid['C'], 
+                yticklabels=param_grid['kernel'])
+    plt.title('SVM AUC (GridSearchCV)')
+    plt.xlabel('C (Regularization Parameter)')
+    plt.ylabel('Kernel Type')
+    plt.tight_layout()
+    plt.savefig(os.path.join(results_path, "svm_auc_heatmap.png"))
+    plt.show()
+    plt.close()
+    
+    results['grid_scores'] = grid_scores
+    
+    # Cross-validation on full data
+    if cv is not None:
+        print(f"\nPerforming {cv}-fold cross-validation with best parameters: {best_params}")
+        svm = SVC(
+            C=best_params['C'],
+            kernel=best_params['kernel'],
+            probability=True,
+            random_state=42,
+            max_iter=-1
+        )
+        cv_scores = cross_val_score(svm, X_train, y_train, cv=cv, scoring='roc_auc')
+        print(f"Cross-validation AUC with {cv} folds:")
+        print(f"Mean: {cv_scores.mean():.4f}, Std: {cv_scores.std():.4f}")
+        print(f"CV Scores: {cv_scores}")
+        
+        results['cv_results'] = {
+            'scores': cv_scores,
+            'mean': cv_scores.mean(),
+            'std': cv_scores.std()
+        }
+    
+    # Train best model on full data
+    print("\nTraining best SVM model on full data...")
+    best_svm = SVC(
+        C=best_params['C'],
+        kernel=best_params['kernel'],
+        probability=True,
+        random_state=42,
+        max_iter=-1
+    )
+    best_svm.fit(X_train, y_train)
+    
+    # Feature importance (coefficients for linear kernel, or approximation for non-linear)
+    if hasattr(X_train, 'columns'):
+        features = X_train.columns
+    else:
+        features = [f'Feature {i}' for i in range(X_train.shape[1])]
+    
+    if best_params['kernel'] == 'linear':
+        coefficients = best_svm.coef_[0]
+    else:
+        # Approximate feature importance for non-linear kernels using permutation importance
+        from sklearn.inspection import permutation_importance
+        perm_importance = permutation_importance(best_svm, X_val, y_val, n_repeats=10, random_state=42)
+        coefficients = perm_importance.importances_mean
+    
+    sorted_idx = np.argsort(np.abs(coefficients))
+    
+    plt.figure(figsize=(10, 8))
+    plt.barh(range(len(sorted_idx)), coefficients[sorted_idx])
+    plt.yticks(range(len(sorted_idx)), [features[i] for i in sorted_idx])
+    plt.title('SVM Feature Importance (Coefficients or Permutation Importance)')
+    plt.xlabel('Coefficient/Permutation Importance Value')
+    plt.tight_layout()
+    plt.savefig(os.path.join(results_path, "svm_feature_importance.png"))
+    plt.show()
+    plt.close()
+    
+    results['feature_importances'] = dict(zip(features, coefficients))
+    results['best_auc'] = best_auc
+    results['best_params'] = best_params
+    results['best_model'] = best_svm
+    
+    print("SVM evaluation completed!")
+    return results

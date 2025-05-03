@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.metrics import f1_score
 from typing import Tuple, List, Dict
 
@@ -65,9 +65,9 @@ def drop_unused_columns(X: pd.DataFrame) -> pd.DataFrame:
 
 def log_transform_transaction_amt(X: pd.DataFrame) -> pd.DataFrame:
     if 'TransactionAmt' in X.columns:
+        X = X.copy()
         X['TransactionAmt_log'] = np.log1p(X['TransactionAmt'])
     return X
-
 # Feature engineering function for one DataFrame with customizable config
 def run_feature_engineering_single_df(X: pd.DataFrame, config: Dict) -> pd.DataFrame:
     print("🚧 Starting feature engineering pipeline...\n")
@@ -113,6 +113,13 @@ def run_feature_engineering_single_df(X: pd.DataFrame, config: Dict) -> pd.DataF
         X = log_transform_transaction_amt(X)
         print("✅ Log transformation applied to TransactionAmt")
 
+    if config.get('standardize_numeric', True):
+        numeric_cols = X.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) > 0:
+            scaler = StandardScaler()
+            X[numeric_cols] = scaler.fit_transform(X[numeric_cols])
+            print("✅ Numeric features standardized")
+
     print(f"🎯 Final shape: {X.shape}")
     return X
 
@@ -130,7 +137,7 @@ def search_best_config(X_train: pd.DataFrame, X_val: pd.DataFrame, model, y_trai
     # Example configurations to test
    # Recommended configurations for experimentation
     configs = [
-        # Config 1: Baseline + log-transform (similar to best so far)
+        # Config 1: Baseline + log-transform + standardization
         {
             'create_transaction_amount_ratios': False,
             'clean_data': True,
@@ -139,10 +146,10 @@ def search_best_config(X_train: pd.DataFrame, X_val: pd.DataFrame, model, y_trai
             'fill_missing_values': True,
             'create_time_features': False,
             'drop_unused_columns': False,
-            'log_transform_transaction_amt': True
+            'log_transform_transaction_amt': True,
+            'standardize_numeric': True
         },
-
-        # Config 2: Add time features only
+        # Config 2: Add time features + standardization
         {
             'create_transaction_amount_ratios': False,
             'clean_data': True,
@@ -151,10 +158,10 @@ def search_best_config(X_train: pd.DataFrame, X_val: pd.DataFrame, model, y_trai
             'fill_missing_values': True,
             'create_time_features': True,
             'drop_unused_columns': False,
-            'log_transform_transaction_amt': True
+            'log_transform_transaction_amt': True,
+            'standardize_numeric': True
         },
-
-        # Config 3: Add ratios + log-transform, no rare grouping
+        # Config 3: Add ratios + log-transform + standardization
         {
             'create_transaction_amount_ratios': True,
             'clean_data': True,
@@ -163,10 +170,10 @@ def search_best_config(X_train: pd.DataFrame, X_val: pd.DataFrame, model, y_trai
             'fill_missing_values': True,
             'create_time_features': False,
             'drop_unused_columns': False,
-            'log_transform_transaction_amt': True
+            'log_transform_transaction_amt': True,
+            'standardize_numeric': True
         },
-
-        # Config 4: Minimal preprocessing
+        # Config 4: Minimal preprocessing + standardization
         {
             'create_transaction_amount_ratios': False,
             'clean_data': True,
@@ -175,10 +182,10 @@ def search_best_config(X_train: pd.DataFrame, X_val: pd.DataFrame, model, y_trai
             'fill_missing_values': True,
             'create_time_features': False,
             'drop_unused_columns': False,
-            'log_transform_transaction_amt': False
+            'log_transform_transaction_amt': False,
+            'standardize_numeric': True
         },
-
-        # Config 5: Everything but rare category grouping
+        # Config 5: Everything but rare category grouping + standardization
         {
             'create_transaction_amount_ratios': True,
             'clean_data': True,
@@ -187,7 +194,8 @@ def search_best_config(X_train: pd.DataFrame, X_val: pd.DataFrame, model, y_trai
             'fill_missing_values': True,
             'create_time_features': True,
             'drop_unused_columns': True,
-            'log_transform_transaction_amt': True
+            'log_transform_transaction_amt': True,
+            'standardize_numeric': True
         },
     ]
 
