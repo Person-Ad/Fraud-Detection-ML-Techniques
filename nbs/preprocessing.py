@@ -139,7 +139,7 @@ def run_feature_engineering_single_df(X: pd.DataFrame, config: Dict) -> pd.DataF
     return X
 
 # Evaluation function to search for the best configuration
-def evaluate_model(X_train: pd.DataFrame, X_val: pd.DataFrame, model, y_train: pd.Series, y_val: pd.Series) -> float:
+def evaluate_f1_score(X_train: pd.DataFrame, X_val: pd.DataFrame, model, y_train: pd.Series, y_val: pd.Series) -> float:
     model.fit(X_train, y_train)
     y_pred = model.predict(X_val)
     return f1_score(y_val, y_pred)
@@ -219,7 +219,7 @@ def search_best_config(X_train: pd.DataFrame, X_val: pd.DataFrame, model, y_trai
         X_train_processed = run_feature_engineering_single_df(X_train.copy(), config)
         X_val_processed = run_feature_engineering_single_df(X_val.copy(), config)
         
-        f1 = evaluate_model(X_train_processed, X_val_processed, model, y_train, y_val)
+        f1 = evaluate_f1_score(X_train_processed, X_val_processed, model, y_train, y_val)
         print(f"✅ F1-score: {f1}")
         
         if f1 > best_f1:
