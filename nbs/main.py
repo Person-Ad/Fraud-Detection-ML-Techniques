@@ -10,7 +10,6 @@ import pickle
 # Configuration
 DATA_PATH = "data/"
 RESULTS_PATH = "results/"
-RESULTS_PATH = "results/"
 CONFIG = {
     'create_transaction_amount_ratios': False,
     'clean_data': True,
@@ -22,7 +21,7 @@ CONFIG = {
     'log_transform_transaction_amt': True,
     'standardize_numeric': True,
     'apply_pca': False,
-    'n_pca_components': 25
+    'n_pca_components': 100
 }
 
 # Create results directories
