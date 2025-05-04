@@ -619,7 +619,7 @@ def evaluate_logistic_regression(X_train, y_train, X_val, y_val,
     
     # Grid search with GridSearchCV
     param_grid = {'C': C_range, 'penalty': penalty_types}
-    lr = LogisticRegression(solver='saga', random_state=42, max_iter=5000, tol=1e-3)
+    lr = LogisticRegression(solver='saga', random_state=42, max_iter=5000, tol=1e-3, class_weight='balanced')
     grid_search = GridSearchCV(
         lr, param_grid, scoring='roc_auc', cv=3, n_jobs=-1, verbose=1
     )
@@ -664,7 +664,8 @@ def evaluate_logistic_regression(X_train, y_train, X_val, y_val,
             solver='saga',
             random_state=42,
             max_iter=5000,
-            tol=1e-3
+            tol=1e-3,
+            class_weight='balanced'
         )
         cv_scores = cross_val_score(lr, X_train, y_train, cv=cv, scoring='roc_auc')
         print(f"Cross-validation AUC with {cv} folds:")
@@ -685,7 +686,8 @@ def evaluate_logistic_regression(X_train, y_train, X_val, y_val,
         solver='saga',
         random_state=42,
         max_iter=5000,
-        tol=1e-3
+        tol=1e-3,
+        class_weight='balanced'
     )
     best_lr.fit(X_train, y_train)
     
